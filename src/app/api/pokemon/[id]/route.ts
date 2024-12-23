@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest } from 'next/server';
 
 interface PokemonType {
   type: {
@@ -23,14 +23,16 @@ interface PokemonSprites {
   };
 }
 
+interface FlavorTextEntry {
+  flavor_text: string;
+  language: {
+    name: string;
+  };
+}
+
 interface PokemonSpecies {
   url: string;
-  flavor_text_entries: Array<{
-    flavor_text: string;
-    language: {
-      name: string;
-    };
-  }>;
+  flavor_text_entries: FlavorTextEntry[];
   evolution_chain: {
     url: string;
   };
@@ -115,121 +117,142 @@ interface FormattedPokemon {
 
 export async function GET(
   request: NextRequest,
-  { params }: { params: Record<string, string> }
+  context: { params: Promise<{ id: string }> }
 ) {
   try {
-    // Validate and parse ID
-    const id = params?.id;
-    if (!id || typeof id !== 'string') {
-      return NextResponse.json(
-        { error: 'Pokemon ID is required' },
+    const { id } = await context.params;
+    if (!id) {
+      return new Response(
+        JSON.stringify({ error: 'Pokemon ID is required' }),
         { status: 400 }
       );
     }
 
     const pokemonId = parseInt(id);
     if (isNaN(pokemonId) || pokemonId < 1) {
-      return NextResponse.json(
-        { error: 'Invalid Pokemon ID' },
+      return new Response(
+        JSON.stringify({ error: 'Invalid Pokemon ID' }),
         { status: 400 }
       );
     }
 
     // Fetch basic Pokemon data
     const pokemonResponse = await fetch(
-      `https://pokeapi.co/api/v2/pokemon/${pokemonId}`
+      `https://pokeapi.co/api/v2/pokemon/${pokemonId}`,
+      { next: { revalidate: 3600 } }
     );
+
     if (!pokemonResponse.ok) {
       throw new Error('Pokemon not found');
     }
-    const pokemonData = (await pokemonResponse.json()) as PokemonResponse;
+
+    const pokemonData: PokemonResponse = await pokemonResponse.json();
 
     // Fetch species data for description and evolution chain
     const speciesResponse = await fetch(pokemonData.species.url);
     if (!speciesResponse.ok) {
       throw new Error('Species data not found');
     }
-    const speciesData = (await speciesResponse.json()) as PokemonSpecies;
 
-    // Get English description
+    const speciesData: PokemonSpecies = await speciesResponse.json();
     const description = speciesData.flavor_text_entries
-      .find(entry => entry.language.name === 'en')
-      ?.flavor_text.replace(/\\f|\\n/g, ' ') || '';
+      .find((entry: FlavorTextEntry) => entry.language.name === 'en')
+      ?.flavor_text.replace(/\\f|\\n|\\r/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim() || '';
 
     // Fetch evolution chain
     const evolutionResponse = await fetch(speciesData.evolution_chain.url);
     if (!evolutionResponse.ok) {
       throw new Error('Evolution data not found');
     }
-    const evolutionData = (await evolutionResponse.json()) as EvolutionChain;
+
+    const evolutionData: EvolutionChain = await evolutionResponse.json();
 
     // Process evolution chain
-    const evolutionChain: FormattedPokemon['evolutionChain'] = [];
-    let evoData: EvolutionChainLink | undefined = evolutionData.chain;
-    
-    while (evoData) {
-      if (evoData.species) {
-        const speciesId = evoData.species.url.split('/').slice(-2, -1)[0];
-        const pokemonResponse = await fetch(
-          `https://pokeapi.co/api/v2/pokemon/${speciesId}`
-        );
-        if (pokemonResponse.ok) {
-          const pokemonData = (await pokemonResponse.json()) as PokemonResponse;
-          evolutionChain.push({
-            id: parseInt(speciesId),
-            name: evoData.species.name,
-            sprite: pokemonData.sprites.front_default,
-          });
-        }
-      }
-      evoData = evoData.evolves_to[0];
-    }
+    const evolutionChain: Array<{
+      id: number;
+      name: string;
+      sprite: string;
+    }> = [];
 
-    // Format moves data
+    const processEvolutionChain = async (chain: EvolutionChainLink) => {
+      const speciesUrl = chain.species.url;
+      const pokemonId = parseInt(
+        speciesUrl.split('/').filter(Boolean).pop() || '0'
+      );
+
+      const pokemonResponse = await fetch(
+        `https://pokeapi.co/api/v2/pokemon/${pokemonId}`
+      );
+      if (pokemonResponse.ok) {
+        const pokemonData = await pokemonResponse.json();
+        evolutionChain.push({
+          id: pokemonId,
+          name: chain.species.name,
+          sprite:
+            pokemonData.sprites.other['official-artwork'].front_default ||
+            pokemonData.sprites.front_default,
+        });
+      }
+
+      if (chain.evolves_to.length > 0) {
+        await Promise.all(
+          chain.evolves_to.map((evolution) => processEvolutionChain(evolution))
+        );
+      }
+    };
+
+    await processEvolutionChain(evolutionData.chain);
+
+    // Fetch move details
     const moves = await Promise.all(
-      pokemonData.moves
-        .slice(0, 12) // Limit to 12 moves for performance
-        .map(async (move) => {
-          const moveResponse = await fetch(move.move.url);
-          if (!moveResponse.ok) return null;
-          const moveData = (await moveResponse.json()) as MoveDetail;
-          return {
-            name: moveData.name,
-            type: moveData.type.name,
-            power: moveData.power,
-            accuracy: moveData.accuracy,
-          };
-        })
+      pokemonData.moves.slice(0, 4).map(async (move) => {
+        const moveResponse = await fetch(move.move.url);
+        if (!moveResponse.ok) return null;
+        const moveData: MoveDetail = await moveResponse.json();
+        return {
+          name: moveData.name,
+          type: moveData.type.name,
+          power: moveData.power,
+          accuracy: moveData.accuracy,
+        };
+      })
     );
 
     // Format the response
     const formattedPokemon: FormattedPokemon = {
       id: pokemonData.id,
       name: pokemonData.name,
-      types: pokemonData.types.map(type => type.type.name),
-      sprite: pokemonData.sprites.other['official-artwork'].front_default || 
-              pokemonData.sprites.front_default,
+      types: pokemonData.types.map((type) => type.type.name),
+      sprite:
+        pokemonData.sprites.other['official-artwork'].front_default ||
+        pokemonData.sprites.front_default,
       stats: {
-        hp: pokemonData.stats[0].base_stat,
-        attack: pokemonData.stats[1].base_stat,
-        defense: pokemonData.stats[2].base_stat,
-        specialAttack: pokemonData.stats[3].base_stat,
-        specialDefense: pokemonData.stats[4].base_stat,
-        speed: pokemonData.stats[5].base_stat,
+        hp: pokemonData.stats.find((stat) => stat.stat.name === 'hp')?.base_stat || 0,
+        attack: pokemonData.stats.find((stat) => stat.stat.name === 'attack')?.base_stat || 0,
+        defense: pokemonData.stats.find((stat) => stat.stat.name === 'defense')?.base_stat || 0,
+        specialAttack: pokemonData.stats.find((stat) => stat.stat.name === 'special-attack')?.base_stat || 0,
+        specialDefense: pokemonData.stats.find((stat) => stat.stat.name === 'special-defense')?.base_stat || 0,
+        speed: pokemonData.stats.find((stat) => stat.stat.name === 'speed')?.base_stat || 0,
       },
       height: pokemonData.height,
       weight: pokemonData.weight,
-      abilities: pokemonData.abilities.map(ability => ability.ability.name),
+      abilities: pokemonData.abilities.map((ability) => ability.ability.name),
       description,
       evolutionChain,
       moves: moves.filter((move): move is NonNullable<typeof move> => move !== null),
     };
 
-    return NextResponse.json(formattedPokemon);
+    return new Response(JSON.stringify(formattedPokemon), {
+      headers: {
+        'Content-Type': 'application/json',
+      },
+    });
   } catch (error) {
     console.error('Error in Pokemon detail API route:', error);
-    return NextResponse.json(
-      { error: 'Failed to fetch Pokemon details' },
+    return new Response(
+      JSON.stringify({ error: 'Failed to fetch Pokemon details' }),
       { status: 500 }
     );
   }

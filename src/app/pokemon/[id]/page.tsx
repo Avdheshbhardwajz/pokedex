@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, use } from 'react';
 import { useRouter } from 'next/navigation';
 
 interface PokemonDetail {
@@ -34,9 +34,8 @@ interface PokemonDetail {
 }
 
 interface PageProps {
-  params: {
-    id: string;
-  };
+  params: Promise<{ id: string }>;
+  searchParams?: Promise<{ [key: string]: string | string[] | undefined }>;
 }
 
 const typeColors: { [key: string]: string } = {
@@ -61,6 +60,7 @@ const typeColors: { [key: string]: string } = {
 };
 
 export default function PokemonDetailPage({ params }: PageProps) {
+  const resolvedParams = use(params);
   const [pokemon, setPokemon] = useState<PokemonDetail | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const router = useRouter();
@@ -68,7 +68,7 @@ export default function PokemonDetailPage({ params }: PageProps) {
   useEffect(() => {
     const fetchPokemonDetail = async () => {
       try {
-        const id = params?.id;
+        const { id } = resolvedParams;
         if (!id) return;
         
         const response = await fetch(`/api/pokemon/${id}`);
@@ -83,7 +83,7 @@ export default function PokemonDetailPage({ params }: PageProps) {
     };
 
     fetchPokemonDetail();
-  }, [params?.id]);
+  }, [resolvedParams]);
 
   if (isLoading) {
     return (

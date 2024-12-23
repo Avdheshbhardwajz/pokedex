@@ -1,4 +1,4 @@
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 
 interface PokemonType {
   type: {
@@ -114,8 +114,8 @@ interface FormattedPokemon {
 }
 
 export async function GET(
-  request: Request,
-  { params }: { params: { id: string } }
+  request: NextRequest,
+  { params }: { params: Record<string, string> }
 ) {
   try {
     // Validate and parse ID

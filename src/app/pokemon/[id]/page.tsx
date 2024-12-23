@@ -33,6 +33,12 @@ interface PokemonDetail {
   }[];
 }
 
+interface PageProps {
+  params: {
+    id: string;
+  };
+}
+
 const typeColors: { [key: string]: string } = {
   bug: 'bg-lime-600',
   dark: 'bg-gray-800',
@@ -54,7 +60,7 @@ const typeColors: { [key: string]: string } = {
   water: 'bg-blue-600',
 };
 
-export default function PokemonDetailPage({ params }: { params: { id: string } }) {
+export default function PokemonDetailPage({ params }: PageProps) {
   const [pokemon, setPokemon] = useState<PokemonDetail | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const router = useRouter();

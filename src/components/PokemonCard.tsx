@@ -6,6 +6,9 @@ interface PokemonStats {
   hp: number;
   attack: number;
   defense: number;
+  specialAttack: number;
+  specialDefense: number;
+  speed: number;
 }
 
 interface PokemonCardProps {
@@ -125,6 +128,33 @@ const PokemonCard: React.FC<PokemonCardProps> = ({
                 <div
                   className="bg-blue-500 rounded-full h-2"
                   style={{ width: `${Math.min(100, (stats.defense / 255) * 100)}%` }}
+                />
+              </div>
+            </div>
+            <div className="flex justify-between items-center">
+              <span className="text-sm font-medium text-gray-300">SP. ATK</span>
+              <div className="w-2/3 bg-gray-600 rounded-full h-2">
+                <div
+                  className="bg-yellow-500 rounded-full h-2"
+                  style={{ width: `${Math.min(100, (stats.specialAttack / 255) * 100)}%` }}
+                />
+              </div>
+            </div>
+            <div className="flex justify-between items-center">
+              <span className="text-sm font-medium text-gray-300">SP. DEF</span>
+              <div className="w-2/3 bg-gray-600 rounded-full h-2">
+                <div
+                  className="bg-purple-500 rounded-full h-2"
+                  style={{ width: `${Math.min(100, (stats.specialDefense / 255) * 100)}%` }}
+                />
+              </div>
+            </div>
+            <div className="flex justify-between items-center">
+              <span className="text-sm font-medium text-gray-300">SPEED</span>
+              <div className="w-2/3 bg-gray-600 rounded-full h-2">
+                <div
+                  className="bg-orange-500 rounded-full h-2"
+                  style={{ width: `${Math.min(100, (stats.speed / 255) * 100)}%` }}
                 />
               </div>
             </div>
